@@ -2,10 +2,10 @@ require("dotenv").config()
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose=  require("mongoose");
-const encrypt = require("mongoose-encryption");
+const md5 = require("md5");
+
 const app = express();
 const port = process.env.PORT;
-const secretString = process.env.SECRET;
 
 
 app.use(express.static("public"));
@@ -21,7 +21,6 @@ const userSchema = new mongoose.Schema({
   username: String,
   password: String
 });
-userSchema.plugin(encrypt,{secret: secretString, encryptedFields: ['password']});
 const User = mongoose.model("User",userSchema);
 
 const secretSchema = new mongoose.Schema({
@@ -39,22 +38,17 @@ app.route("/login")
     res.render("pages/login");
   })
   .post((req,res)=>{
-    const password = req.body.password;
-    User.findOne({ //using find we're decrypting the password and after that
-      //we can use password as string and we can compare it
-      //with user entered password at login
-      username: req.body.username
-// we cannot use direct find doc with both username and password, because password is not yet present before completion of find method
+    User.findOne({
+      username: req.body.username,
+      password: md5(req.body.password)
     },(err,doc)=>{
       if(!err){
         if(doc){
-          if(doc.password === password){
           Secret.find((err,allSecrets)=>{
             res.render("pages/secrets",{
               listOfSecrets: allSecrets
             });
           });
-          }
         }
         else{
           res.redirect("/login");
@@ -75,9 +69,9 @@ app.route("/register")
       else{
         const newUser = User({
           username: req.body.username,
-          password: req.body.password
+          password: md5(req.body.password)
         });
-        newUser.save(); //using save we're encrypting the password
+        newUser.save();
         res.redirect("/login");
       }
     });
