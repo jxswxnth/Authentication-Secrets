@@ -6,9 +6,9 @@ const mongoose = require("mongoose");
 const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
-const GoogleStrategy = require("passport-google-oauth2").Strategy;
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const findOrCreate = require("mongoose-findorcreate");
-
+const FacebookStrategy = require("passport-facebook").Strategy;
 
 const app = express();
 const port = process.env.PORT;
@@ -39,7 +39,9 @@ mongoose.connect("mongodb://localhost:27017/secrets1DB");
 const userSchema = new mongoose.Schema({
   username: String,
   password: String,
-  googleId: String
+  googleId: String,
+  facebookId: String,
+  secret: String
 });
 
 userSchema.plugin(findOrCreate);
@@ -60,24 +62,34 @@ passport.deserializeUser(function(id, done) {
 });
 
 passport.use(new GoogleStrategy({
-    clientID: process.env.CLIENT_ID,
-    clientSecret: process.env.CLIENT_SECRET,
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: "http://localhost:3000/auth/google/secrets",
     passReqToCallback: true
   },
-  (request, accessToken, refreshToken, profile, done)=>{
+  (request, accessToken, refreshToken, profile, done) => {
     User.findOrCreate({
       googleId: profile.id
-    }, function(err, user) {
+    }, (err, user) => {
       return done(err, user);
     });
   }
 ));
 
-const secretSchema = new mongoose.Schema({
-  secret: String
-});
-const Secret = mongoose.model("Secret", secretSchema);
+passport.use(new FacebookStrategy({
+    clientID: process.env.FACEBOOK_APP_ID,
+    clientSecret: process.env.FACEBOOK_APP_SECRET,
+    callbackURL: "http://localhost:3000/auth/facebook/secrets"
+  },
+  (accessToken, refreshToken, profile, done) => {
+    console.log(profile);
+    User.findOrCreate({
+      facebookId: profile.id
+    }, (err, user) => {
+      return done(err, user);
+    });
+  }
+));
 
 app.route("/")
   .get((req, res) => {
@@ -111,49 +123,52 @@ app.route("/auth/google")
 
 app.route("/auth/google/secrets")
   .get(passport.authenticate("google", {
-    successRedirect: '/secrets',
-    failureRedirect: '/login'
+      failureRedirect: "/login"
+    }),
+    (req, res) => {
+      res.redirect("/secrets");
+    });
+
+app.route("/auth/facebook")
+  .get(passport.authenticate("facebook", {
+    scope: "public_profile"
   }));
+
+app.route("/auth/facebook/secrets")
+  .get(passport.authenticate("facebook", {
+      failureRedirect: "/login"
+    }),
+    (req, res) => {
+      res.redirect("/secrets");
+    });
 
 app.route("/register")
   .get((req, res) => {
     res.render("pages/register");
   })
   .post((req, res) => {
-    User.findOne({
+    User.register({
       username: req.body.username
-    }, (err, doc) => {
-      if (!err && doc) {
-        console.log("User already exists");
+    }, req.body.password, (err, user) => {
+      if (err) {
+        console.log(err);
         res.redirect("/register");
       } else {
-        // No need to use save(), since we're using passport-local-mongoose it takes care of saving user in db.
-        // In User.register() we're sending only username since password will be stored as salt and hash in db.
-        // User.register() saves user into our db.
-        User.register({
-          username: req.body.username
-        }, req.body.password, (err, user) => {
-          if (err) {
-            console.log(err);
-            res.redirect("/register");
-          } else {
-            passport.authenticate("local")(req, res, () => {
-              res.redirect("/secrets");
-            });
-          }
+        passport.authenticate("local")(req, res, () => {
+          res.redirect("/secrets");
         });
       }
     });
   });
-
+const allSecrets = [];
 app.route("/secrets")
   .get((req, res) => {
     if (req.isAuthenticated()) {
-      Secret.find((err, allSecrets) => {
+      User.find({secret: {$ne: null}},(err,users)=>{
         res.render("pages/secrets", {
-          listOfSecrets: allSecrets
+          listOfUsers: users
         });
-      });
+      })
     } else {
       res.redirect("/login");
     }
@@ -161,18 +176,25 @@ app.route("/secrets")
 
 app.route("/submit")
   .get((req, res) => {
-    res.render("pages/submit");
+    if (req.isAuthenticated()) {
+      res.render("pages/submit");
+    } else {
+      res.redirect("/login");
+    }
   })
   .post((req, res) => {
-    const newSecret = Secret({
+    console.log(req.user);
+    console.log(req.body);
+    User.updateOne({
+      _id: req.user._id
+    }, {
       secret: req.body.secret
-    });
-    newSecret.save();
-    Secret.find((err, allSecrets) => {
-      res.render("pages/secrets", {
-        listOfSecrets: allSecrets
-      });
-    });
+    }, (err) => {
+      if (err) {
+        console.log(err);
+      }
+    })
+    res.redirect("/secrets");
   });
 
 app.route("/logout")
