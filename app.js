@@ -6,6 +6,9 @@ const mongoose = require("mongoose");
 const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
+const GoogleStrategy = require("passport-google-oauth2").Strategy;
+const findOrCreate = require("mongoose-findorcreate");
+
 
 const app = express();
 const port = process.env.PORT;
@@ -17,7 +20,7 @@ app.use(bodyParser.urlencoded({
 }));
 app.set("view engine", "ejs");
 
-//after requiring 'session', we configured some values in session
+//configuring session
 app.use(session({
   secret: secretString,
   resave: false,
@@ -35,17 +38,41 @@ mongoose.connect("mongodb://localhost:27017/secrets1DB");
 
 const userSchema = new mongoose.Schema({
   username: String,
-  password: String
+  password: String,
+  googleId: String
 });
 
+userSchema.plugin(findOrCreate);
 userSchema.plugin(passportLocalMongoose);
 
 const User = mongoose.model("User", userSchema);
 
 passport.use(User.createStrategy());
 
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function(user, done) {
+  done(null, user);
+});
+
+passport.deserializeUser(function(id, done) {
+  User.findById(id, function(err, user) {
+    done(err, user);
+  });
+});
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets",
+    passReqToCallback: true
+  },
+  (request, accessToken, refreshToken, profile, done)=>{
+    User.findOrCreate({
+      googleId: profile.id
+    }, function(err, user) {
+      return done(err, user);
+    });
+  }
+));
 
 const secretSchema = new mongoose.Schema({
   secret: String
@@ -76,6 +103,17 @@ app.route("/login")
       }
     });
   });
+
+app.route("/auth/google")
+  .get(passport.authenticate("google", {
+    scope: ['email', 'profile']
+  }));
+
+app.route("/auth/google/secrets")
+  .get(passport.authenticate("google", {
+    successRedirect: '/secrets',
+    failureRedirect: '/login'
+  }));
 
 app.route("/register")
   .get((req, res) => {
@@ -139,10 +177,10 @@ app.route("/submit")
 
 app.route("/logout")
   .get((req, res) => {
-    req.logout((err)=>{
-      if(err){
+    req.logout((err) => {
+      if (err) {
         console.log(err);
-      } else{
+      } else {
         res.redirect("/");
       }
     })
