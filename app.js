@@ -13,6 +13,7 @@ const FacebookStrategy = require("passport-facebook").Strategy;
 const app = express();
 const port = process.env.PORT;
 const secretString = process.env.SECRET;
+const databaseURL = process.env.DB_URL;
 
 app.use(express.static("public"));
 app.use(bodyParser.urlencoded({
@@ -34,7 +35,7 @@ app.use(passport.session());
 mongoose.set({
   strictQuery: true
 });
-mongoose.connect("mongodb://localhost:27017/secrets1DB");
+mongoose.connect(databaseURL);
 
 const userSchema = new mongoose.Schema({
   username: String,
